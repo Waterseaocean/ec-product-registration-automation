@@ -1,0 +1,26 @@
+# Public repository: ignore everything unless explicitly allowed below.
+# New source files must be reviewed and added to this allowlist first.
+*
+!/.gitignore
+!/README.md
+!/requirements.txt
+!/automation.py
+!/rules.py
+!/mock_server.py
+!/mock.html
+!/tests/
+!/tests/test_lab.py
+
+# Explicit exclusions, including inside allowed directories.
+.env
+.env.*
+*.pem
+*.key
+__pycache__/
+.venv/
+.browsers/
+runs/
+docs/
+AGENTS.md
+capture_demo.py
+STOP

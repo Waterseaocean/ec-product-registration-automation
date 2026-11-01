@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<title>EC操作自動化ラボ</title>
+<!-- [H01] 見た目。自動操作は色や座標ではなくラベル・役割・属性を使う。 -->
+<style>
+body{font:16px system-ui;background:#eef3f7;color:#172b40;max-width:1000px;margin:45px auto}
+header{border-left:6px solid #087e8b;padding-left:20px}
+main{background:white;padding:28px;border-radius:14px;margin-top:28px}
+button,input{font:inherit;padding:9px;margin:6px}button{cursor:pointer}
+table{width:100%;border-collapse:collapse;margin:20px 0}
+td,th{padding:14px;text-align:left;border-bottom:1px solid #ddd}
+#status{color:#087e8b}small{color:#526579}
+</style>
+<header>
+  <small>LEARNING LAB / ローカル専用</small>
+  <h1>EC商品 予約登録</h1>
+  <p>検索 → 選別 → 選択 → 予約 → 次の一覧</p>
+</header>
+<!-- [H02] 入力と表示の受け皿。labelはget_by_label()で入力欄を探す手掛かり。 -->
+<main>
+  <label>検索キーワード<input id="keyword"></label>
+  <label>最低価格<input id="minimum" type="number" value="0"></label>
+  <button id="search">検索</button>
+  <p id="pagination"></p>
+  <table>
+    <thead><tr><th>選択</th><th>商品ID</th><th>商品名</th><th>価格</th><th>在庫</th><th>状態</th></tr></thead>
+    <!-- render()が商品の行をここへ挿入する。 -->
+    <tbody></tbody>
+  </table>
+  <button id="reserve">選択商品を予約登録</button>
+  <button id="next">次の一覧</button>
+  <!-- Pythonのget_by_role('status')はこの要素を読む。 -->
+  <p role="status" id="status"></p>
+  <p>予約履歴: <span id="history"></span></p>
+</main>
+<script>
+// [J01] データと画面状態。ここからはブラウザ側で動くJavaScript。
+// mapで各配列を変換し、分割代入により項目名を付けたオブジェクトにする。
+const products = [
+  ['A001','収納ボックス',2400,5],
+  ['A002','ジャンク時計',3000,3],
+  ['A003','デスクライト',900,2],
+  ['A004','マグカップ',2000,0],
+  ['A005','ノートセット',1000,2],
+  ['A006','禁止ブランド',4000,5],
+  ['A007','タオルセット',10000,4],
+  ['A008','チェア',10001,2],
+  ['A009','登録済みバッグ',5000,1]
+].map(([id,name,price,stock]) => ({id,name,price,stock}));
+// 保存文字列がなければ'[]'を使い、JSON.parseで配列へ戻す。
+let reserved = JSON.parse(localStorage.getItem('reserved') || '[]'), index = 0, filtered = [];
+// URLの?scenario=error等を取得。constは再代入不可、letは再代入可。
+const scenario = new URLSearchParams(location.search).get('scenario');
+// アロー関数。A009は最初から登録済み、または履歴にIDがあれば登録済み。
+const registered = p => p.id === 'A009' || reserved.includes(p.id);
+
+// [J02] 再描画：状態から表・ページ番号・ボタン・履歴を作り直す。
+function render() {
+  // indexは0始まり。sliceは終了位置を含まず、3件ずつ切り出す。
+  let rows = filtered.slice(index * 3, index * 3 + 3);
+  // mapで各商品をHTMLへ、joinで1文字列へ。data-*はPythonが読む属性。
+  // ${...}は値の埋め込み。checkedにより再描画のたびに全選択へ戻る。
+  // 固定データ用の教材。外部入力をそのままinnerHTMLへ埋め込まない。
+  document.querySelector('tbody').innerHTML = rows.map(p =>
+    `<tr data-id="${p.id}" data-name="${p.name}" data-price="${p.price}" data-stock="${p.stock}" data-registered="${registered(p)}"><td><input type="checkbox" aria-label="選択 ${p.id}" checked></td><td>${p.id}</td><td>${p.name}</td><td>${p.price}</td><td>${p.stock}</td><td class="state">${registered(p)?'登録済み':'未登録'}</td></tr>`
+  ).join('');
+  // ceilは切り上げ。空一覧でも表示上は1ページにする。
+  document.querySelector('#pagination').textContent = `${index+1} / ${Math.max(1,Math.ceil(filtered.length/3))}`;
+  // 最後のページならdisabled=trueにして次へ進めなくする。
+  document.querySelector('#next').disabled = (index + 1) * 3 >= filtered.length;
+  document.querySelector('#history').textContent = reserved.join(', ');
+}
+
+// [J03] 検索イベント。onclickへ「押された時に呼ぶ関数」を登録する。
+document.querySelector('#search').onclick = () => {
+  index = 0; // 再検索は先頭ページへ。
+  // filterは条件がtrueの商品だけ残す。Numberは入力文字列を数値へ変換。
+  filtered = products.filter(p =>
+    p.name.includes(document.querySelector('#keyword').value) &&
+    p.price >= Number(document.querySelector('#minimum').value)
+  );
+  // 検証用シナリオ：空一覧と、別ページへの重複商品の挿入。
+  if (scenario === 'empty') filtered = [];
+  if (scenario === 'duplicate') filtered.splice(3, 0, products[0]);
+  render();
+};
+
+// [J04] ページ送り。loop時はあえて進めず、循環検知を試す。
+document.querySelector('#next').onclick = () => {
+  if (scenario !== 'loop') index++; // ++は1を足す記法。
+  render();
+};
+
+// [J05] 予約イベント。チェックされたIDだけ履歴へ保存する。
+document.querySelector('#reserve').onclick = () => {
+  // [...]で配列化→checkedの行だけ抽出→data-idを取得。
+  const ids = [...document.querySelectorAll('tbody tr')]
+    .filter(r => r.querySelector('input').checked)
+    .map(r => r.dataset.id);
+  // confirmはOK/キャンセル確認。!は否定、キャンセルならreturnで中断。
+  if (!confirm(scenario === 'unknown' ? '予期しない操作です' : `${ids.length}件を予約登録しますか？`)) return;
+  if (scenario === 'error') {
+    document.querySelector('#status').textContent = '登録エラー';
+    return; // エラー再現時は履歴を変更しない。
+  }
+  // ...で配列を展開・結合。Setで重複を除き、配列へ戻す。
+  reserved = [...new Set([...reserved, ...ids])];
+  // ブラウザ内へJSON文字列で保存。予約情報をサーバーへ送る実装ではない。
+  localStorage.setItem('reserved', JSON.stringify(reserved));
+  render();
+  // Pythonはこの文面とdata-registeredの両方で成功を確認する。
+  document.querySelector('#status').textContent = `予約完了: ${ids.join(',')}`;
+};
+
+// [J06] 初期表示。検索イベントをプログラムから呼び、一覧を表示する。
+document.querySelector('#search').click();
+</script>
+</html>
